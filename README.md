@@ -8,7 +8,6 @@ AI-powered fashion design platform that analyzes real-time trends via Gemini + G
 
 The fashion industry loses billions annually to trend misalignment — brands design collections months in advance, only to find they've missed what consumers actually want. I watched independent designers struggle with the same cycle: manually scrolling Instagram, guessing at trends, and hoping their collections would land. I thought — what if AI could close that gap entirely? What if a single platform could analyze real-time global fashion trends, generate brand-compliant product imagery, produce manufacturing-ready tech packs as professionally formatted PDFs, and even create ad-ready video content — all powered by Gemini and enhanced by Foxit's document automation?
 
-The "aha" moment came when I imagined the Veo-powered feature: a designer uploads their brand, and Gemini generates a video of their future self presenting a completed collection on a runway. "This can be your future you." That emotional hook — seeing your vision materialized before you've even cut fabric — became the soul of TrendSync Brand Factory. And the practical backbone became Foxit — because a fashion collection isn't real until it's a PDF you can send to a manufacturer.
 
 ## What it does
 
