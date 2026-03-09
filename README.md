@@ -27,8 +27,6 @@ TrendSync Brand Factory is an end-to-end AI fashion design platform built entire
 
 - **Voice Design Companion ("Lux")**: A Google ADK agent using `gemini-live-2.5-flash-native-audio` that lets designers talk through design decisions hands-free via bidirectional WebSocket streaming — real-time PCM audio at 16kHz as binary WebSocket frames (no JSON+base64 overhead) with live status feedback ("Editing image...", "Fetching trends..."). Both typing and voice agents share the same 7 tools (`shared/design_tools.py`) and image pipeline, ensuring identical capabilities regardless of input modality. The voice agent additionally has 3 exclusive tools: video generation, page navigation, and collection generation.
 
-- **"Future You" Ad Video Generator**: The flagship feature — powered by Veo 3.1, it takes a completed collection and generates cinematic 5-scene ad videos (hook, hero, detail, lifestyle, CTA). Gemini 3 Pro writes the storyboard with structured thinking, then Veo 3.1 renders each scene with product images as style references, stitched together with ffmpeg. The concept: "this can be your future you" — turning a brand brief into an aspirational video that feels like looking into tomorrow.
-
 - **Full Pipeline Orchestration**: A single endpoint (`POST /adk/pipeline`) chains the entire workflow: trends → collection plan → product image generation → ad video — executing all four steps as a coordinated pipeline with status polling.
 
 - **Login Monitoring**: Every sign-in is double-logged — a `login_audit` record in Supabase (user ID, browser, timestamp) plus a real-time email notification via Resend API to the admin, providing instant awareness of platform activity.
@@ -41,83 +39,6 @@ Foxit's document automation APIs are central to TrendSync's professional output 
 
 AI can generate brilliant fashion collections, but the fashion industry runs on PDFs. Manufacturers need tech packs. Buyers need lookbooks. Emails need attachments. Without professional document output, an AI platform is just a demo. Foxit bridges the gap between AI intelligence and industry-standard deliverables.
 
-### Architecture: DOCX-to-PDF Pipeline
-
-```
-Designer clicks "Download PDF"
-        |
-   POST /generate-techpack-pdf
-        |
-        v
-   Backend (foxit_service.py)
-        |
-        +-- Step 1: python-docx builds styled DOCX (local)
-        |   - Navy header bar with brand name + product name
-        |   - 4-column product info table (SKU, Category, Price, Persona...)
-        |   - 7 styled sections with blue heading bars
-        |   - Alternating-row measurements table (XS-XL)
-        |   - Foxit-branded footer
-        |
-        +-- Step 2: Upload DOCX to Foxit PDF Services (cloud)
-        |   POST /pdf-services/api/documents/upload
-        |   -> returns documentId
-        |
-        +-- Step 3: Convert DOCX to PDF (cloud)
-        |   POST /pdf-services/api/documents/create/pdf-from-word
-        |   -> returns taskId -> poll until COMPLETED -> resultDocumentId
-        |
-        +-- Step 4: Compress PDF (cloud)
-        |   POST /pdf-services/api/documents/modify/pdf-compress
-        |   -> MEDIUM compression level -> poll -> download
-        |
-        +-- Step 5: Download final PDF
-        |   GET /pdf-services/api/documents/{id}/download
-        |
-        v
-   Return base64 PDF -> Frontend downloads to user's device
-```
-
-### Lookbook Generation (Collection Export)
-
-The "Export Lookbook" feature demonstrates Foxit's **PDF merge capability** — combining multiple documents into a single professional deliverable:
-
-```
-Designer clicks "Export Lookbook"
-        |
-   POST /generate-lookbook
-        |
-        v
-   For each product in collection:
-        +-- Build individual DOCX (python-docx)
-        +-- Upload to Foxit -> Convert to PDF
-        |
-   Foxit PDF Services: Merge all PDFs
-        POST /pdf-services/api/documents/enhance/pdf-combine
-        -> poll -> resultDocumentId
-        |
-   Foxit PDF Services: Compress merged PDF
-        POST /pdf-services/api/documents/modify/pdf-compress
-        -> poll -> download
-        |
-        v
-   Return single lookbook PDF with all products
-```
-
-### Single Source of Truth Pattern
-
-A critical design decision ensures document integrity: tech packs are **saved to the database before PDF generation is allowed**. The backend endpoint returns HTTP 400 if no saved tech pack exists. This prevents Gemini from hallucinating different values between what the designer sees in the UI and what appears in the PDF.
-
-### Why Foxit Was Essential
-
-1. **Professional Styling**: `python-docx` builds richly styled documents — navy header bars, alternating table rows, branded color palette, proper typography — that look like they came from a design agency, not a code generator.
-
-2. **Cloud Conversion**: Foxit's PDF Services API handles DOCX-to-PDF conversion server-side with no local LibreOffice or headless browser dependency. The async task pattern (submit -> poll -> download) is reliable and production-ready.
-
-3. **PDF Compression**: Fashion tech packs with detailed specs can be large. Foxit's compression (MEDIUM level) reduces file sizes for email attachments and faster downloads, with graceful fallback if compression fails.
-
-4. **PDF Merging**: The lookbook feature — combining 5-20 individual tech pack PDFs into one document — would require complex PDF manipulation libraries locally. Foxit's `pdf-combine` endpoint handles this cleanly in the cloud.
-
-5. **No Infrastructure Overhead**: Authentication is simple (client_id + client_secret headers, no OAuth), the API is RESTful, and the async polling pattern integrates naturally with Python's `httpx`. Zero DevOps burden.
 
 ## Brand Guardian — How Validation Works
 
@@ -233,13 +154,7 @@ React (Vercel) → Cloud Run: Main Backend (:8080) → Gemini 3 Pro / Flash / Im
 
 **Gemini 3 API differences**: Gemini 3 uses `thinking_level` (HIGH/MEDIUM/LOW enum), NOT `thinking_budget` (that's Gemini 2.5). Also requires `location=global` on Vertex AI, while Veo requires `us-central1` — mixing these up causes silent failures.
 
-**Foxit async task pattern**: Foxit PDF Services operations are async — you submit a task, get a `taskId`, and poll until `COMPLETED`. Implementing reliable polling with timeouts (120 seconds), error handling, and graceful fallbacks (if compression fails, return uncompressed PDF) required careful engineering.
 
-**PDF data consistency**: Gemini can hallucinate different values each time it's called. Solution: save the tech pack to Supabase once (with `techpack_generated: true` flag), and enforce that the PDF endpoint only accepts pre-saved data. The frontend blocks PDF download until the tech pack is persisted.
-
-**Vertex AI authentication on macOS to Cloud Run**: The service account credential chain had subtle issues with the `google-genai` SDK's `vertexai=True` mode locally. Moving to Cloud Run solved this — the attached service account inherits permissions natively, but required adding `roles/aiplatform.user` to the Compute Engine default SA.
-
-**Supabase RLS infinite recursion**: A Row-Level Security policy on `user_profiles` that checked admin status by querying `user_profiles` itself created an infinite loop. Had to drop it and rely on JWT-based role checks instead.
 
 ## Accomplishments that I'm proud of
 
@@ -253,9 +168,6 @@ React (Vercel) → Cloud Run: Main Backend (:8080) → Gemini 3 Pro / Flash / Im
 
 **Single source of truth architecture**: The tech pack persistence pattern — save to DB once, generate PDF from saved data only, clear on design changes — eliminates the #1 risk of AI-generated documents: inconsistency. What you see in the UI is exactly what appears in the PDF.
 
-**Zero API keys in the browser**: Every Gemini call, every Foxit call, every video generation goes through the FastAPI backend on Cloud Run. The frontend is a pure presentation layer deployed on Vercel — secure by architecture, not by obscurity.
-
-**The "Future You" concept**: Using Veo 3.1 to generate aspirational 5-scene runway videos from a brand brief creates an emotional moment that no competitor offers. It transforms AI from a tool into a creative partner that shows you what's possible.
 
 ## What I learned
 
@@ -269,19 +181,14 @@ React (Vercel) → Cloud Run: Main Backend (:8080) → Gemini 3 Pro / Flash / Im
 
 **The Gemini ecosystem is genuinely composable**. Gemini 3 Pro for deep reasoning, Gemini 3 Pro Image for generation, Flash for speed, native audio for voice, Veo 3.1 for video, Google Search for grounding, Google ADK for agent orchestration — these aren't separate products bolted together; they share the same SDK patterns (`google-genai` with `vertexai=True`) and work naturally as a unified AI backend.
 
-**Foxit's APIs are production-ready with minimal friction**. Simple auth (client_id + client_secret headers), clean REST endpoints, and the async task pattern is straightforward to implement. The combination of DOCX-to-PDF conversion, compression, and merge covers the full document lifecycle without any local dependencies like LibreOffice or Puppeteer.
 
 **Architecture matters more than model size**. The biggest improvements came not from switching models, but from designing the right prompts, caching strategy (Redis with 24h TTL), image compression pipeline, retry logic, and data flow. A well-structured `gemini-2.5-flash` call with proper context outperformed naive Pro calls every time. Similarly, the single source of truth pattern for tech packs solved a consistency problem that no amount of prompt engineering could fix.
 
 ## What's next for TrendSync Brand Factory
 
 - **Multi-brand portfolio management**: Supporting agencies that manage multiple fashion brands, each with distinct guidelines, from one dashboard.
-- **Runway video customization**: Letting designers control Veo 3.1 parameters — venue style, lighting mood, model demographics, music genre — to create truly personalized "Future You" videos.
 - **Supplier matching**: Using Gemini to match tech pack specifications with a database of global manufacturers, completing the design-to-production pipeline.
 - **Mobile companion app**: A voice-first mobile interface using `gemini-live-2.5-flash-native-audio` so designers can iterate on collections while away from their desk — "Hey TrendSync, swap the jacket color to the trending terracotta I saw in the Seoul report."
-- **GCS storage integration**: Moving generated images and videos from base64 data URLs to Google Cloud Storage for better performance and persistence.
-- **Foxit watermarking**: Adding brand watermarks to tech pack PDFs via Foxit's PDF Services watermark API for intellectual property protection during the vendor review process.
-- **Interactive PDF lookbooks**: Using Foxit's advanced PDF features to add clickable navigation, embedded color swatches, and interactive measurement tables to collection lookbooks.
 
 ## Getting Started
 
